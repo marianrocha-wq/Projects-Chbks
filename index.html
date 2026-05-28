@@ -208,7 +208,7 @@ footer{text-align:center;font-size:10px;color:var(--text3);padding:2rem;font-fam
     <span class="htitle">Dashboard de Automatización</span>
   </div>
   <div class="hright">
-    <span class="lupd" id="lupd">—</span>
+    <span id="sync-status" style="font-size:10px;color:rgba(255,255,255,.6);font-family:'DM Mono',monospace;background:rgba(255,255,255,.08);padding:3px 10px;border-radius:20px;transition:opacity .5s;margin-right:4px">⏳ Conectando...</span><span class="lupd" id="lupd">—</span>
     <button class="hbtn" onclick="window.print()">🖨 Imprimir</button>
   </div>
 </header>
@@ -580,7 +580,7 @@ function renderPC(){
 }
 
 function renderAll(){renderKPIs();renderGantt();renderPC();}
-function ud(i,f,v){tasks[i][f]=v;}
+function ud(i,f,v){tasks[i][f]=v;if(typeof saveToCloud==="function")saveToCloud(false);}
 
 // TABS
 document.querySelectorAll('.tab').forEach(function(t){
@@ -714,16 +714,93 @@ function saveTask(){
   if(i===-1)tasks.push(entry);else tasks[i]=entry;
   document.getElementById('lupd').textContent='Actualizado: '+new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
   renderAll();closeModal();
+  if(typeof saveToCloud === "function") saveToCloud(false);
 }
 
 function delTask(){
   var i=parseInt(document.getElementById('ei').value);
-  if(i>=0&&confirm('¿Eliminar esta tarea? Esta acción no se puede deshacer.')){tasks.splice(i,1);renderAll();closeModal();}
+  if(i>=0&&confirm('¿Eliminar esta tarea? Esta acción no se puede deshacer.')){tasks.splice(i,1);renderAll();closeModal();if(typeof saveToCloud==="function")saveToCloud(false);}
+}
+
+
+// ─── JSONBIN CONFIG ───
+var BIN_ID = '6a18839921f9ee59d296580c';
+var API_KEY = '$2a$10$dnmt1B2Y3V9LexwshNqtqeieO0hO7H1e.Yp2zAZ9k5vr/wAgWAxL6';
+var BIN_URL = 'https://api.jsonbin.io/v3/b/' + BIN_ID;
+var isSaving = false;
+
+// ─── LOADING UI ───
+function showLoading(msg) {
+  var el = document.getElementById('sync-status');
+  if(el) { el.textContent = msg; el.style.opacity='1'; }
+}
+function hideLoading() {
+  var el = document.getElementById('sync-status');
+  if(el) { setTimeout(function(){ el.style.opacity='0'; }, 2000); }
+}
+
+// ─── LOAD FROM JSONBIN ───
+function loadFromCloud() {
+  showLoading('⏳ Cargando datos...');
+  fetch(BIN_URL + '/latest', {
+    headers: { 'X-Master-Key': API_KEY }
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data) {
+    if(data.record && data.record.tasks && data.record.tasks.length > 0) {
+      tasks = data.record.tasks;
+      showLoading('✅ Datos cargados');
+    } else {
+      // First time - save default data
+      showLoading('📤 Inicializando datos...');
+      saveToCloud(true);
+    }
+    document.getElementById('yr').textContent=new Date().getFullYear();
+    document.getElementById('lupd').textContent='Sincronizado: '+new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    renderAll();
+    hideLoading();
+  })
+  .catch(function(err) {
+    console.error('Error loading:', err);
+    showLoading('⚠️ Sin conexión — modo local');
+    document.getElementById('yr').textContent=new Date().getFullYear();
+    renderAll();
+    hideLoading();
+  });
+}
+
+// ─── SAVE TO JSONBIN ───
+function saveToCloud(silent) {
+  if(isSaving) return;
+  isSaving = true;
+  if(!silent) showLoading('💾 Guardando...');
+  fetch(BIN_URL, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Master-Key': API_KEY
+    },
+    body: JSON.stringify({ tasks: tasks })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function() {
+    isSaving = false;
+    var now = new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('lupd').textContent = 'Guardado: ' + now;
+    if(!silent) showLoading('✅ Guardado en la nube');
+    hideLoading();
+  })
+  .catch(function(err) {
+    isSaving = false;
+    console.error('Error saving:', err);
+    if(!silent) showLoading('❌ Error al guardar');
+    hideLoading();
+  });
 }
 
 document.getElementById('yr').textContent=new Date().getFullYear();
-document.getElementById('lupd').textContent='Cargado: '+new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
-renderAll();
+loadFromCloud();
+
 </script>
 </body>
 </html>
